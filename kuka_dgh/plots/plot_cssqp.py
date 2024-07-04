@@ -13,7 +13,7 @@ from demos import launch_utils
 
 from mim_robots.robot_loader import load_pinocchio_wrapper
 
-pinrobot    = load_pinocchio_wrapper('iiwa')
+pinrobot    = load_pinocchio_wrapper('iiwa_convex')
 model       = pinrobot.model
 data        = model.createData()
 frameId     = model.getFrameId('contact')
@@ -24,8 +24,8 @@ model.effortLimit = np.array([100, 100, 50, 50, 20, 10, 10])
 
 
 # Load config file
-SIM           = False
-EXP_NAME      = 'square_cssqp' # <<<<<<<<<<<<< Choose experiment here (cf. launch_utils)
+SIM           = True
+EXP_NAME      = 'binpicking_cssqp' # <<<<<<<<<<<<< Choose experiment here (cf. launch_utils)
 config        = launch_utils.load_config_file(EXP_NAME)
 
 
@@ -33,8 +33,8 @@ config        = launch_utils.load_config_file(EXP_NAME)
 s = SimpleDataPlotter(dt=1./config['ctrl_freq'])
 
 if(SIM):
-    data_path = '/home/skleff/data_sqp_paper_croc2/constrained/square/'
-    data_name = 'square_cssqp_SIM_2023-10-20T17:25:45.051546_cssqp_best_filter=3' 
+    data_path = '/tmp/'
+    data_name = 'binpicking_cssqp_SIM_2024-07-04T17:20:11.428684_cssqp_CODE_SPRINT' 
     
 else:
     data_path = '/tmp/'
@@ -60,17 +60,10 @@ for i in range(len(ax)):
     
     
 # Limits
-if(EXP_NAME == 'circle_cssqp'):
-    xlb = config['stateLowerLimit']
-    xub = config['stateUpperLimit']
-
-    qlb = np.array([xlb[:nq]]*N) ; qub = np.array([xub[:nq]]*N)
-    vlb = np.array([xlb[nq:]]*N) ; vub = np.array([xub[nq:]]*N)
+if(EXP_NAME == 'binpicking_cssqp'):
 
     s.plot_joint_pos( [r.data['joint_positions'], 
-                       r.data['x_des'][:,:nq],
-                    qlb, 
-                    qub], 
+                       r.data['x_des'][:,:nq]], 
                     ['Measured', 
                      'Predicted',
                      'lb',
@@ -78,14 +71,6 @@ if(EXP_NAME == 'circle_cssqp'):
                     ['r', 'b', 'k', 'k'],
                     ylims=[model.lowerPositionLimit, model.upperPositionLimit],
                     linestyle=['solid', 'solid', 'dotted', 'dotted'])
-else:
-    s.plot_joint_pos( [r.data['joint_positions'], 
-                       r.data['x_des'][:,:nq]], 
-                    ['Measured', 
-                     'Predicted'], 
-                    ['r', 'b'],
-                    ylims=[model.lowerPositionLimit, model.upperPositionLimit],
-                    linestyle=['solid', 'solid'])
 
 # For SIM robot only
 if(SIM):
@@ -123,51 +108,17 @@ else:
 
 p_mea = get_p_(r.data['joint_positions'], pinrobot.model, pinrobot.model.getFrameId('contact'))
 p_des = get_p_(r.data['x_des'][:,:nq], pinrobot.model, pinrobot.model.getFrameId('contact'))
-if(EXP_NAME == 'plane_cssqp'):
-    target_position = r.data['target_position']
-else:
-    target_position = np.zeros((N,3))
-    target_position[:,0] = r.data['target_position_x'][:,0]
-    target_position[:,1] = r.data['target_position_y'][:,0]
-    target_position[:,2] = r.data['target_position_z'][:,0]
+target_position = np.zeros((N,3))
+target_position[0] = r.data['target_position_x'][0]
+target_position[1] = r.data['target_position_y'][0]
+target_position[2] = r.data['target_position_z'][0]
 
-if(EXP_NAME == 'square_cssqp' or EXP_NAME == 'line_cssqp'):
-    ee_lb = r.data['lb'] 
-    ee_ub = r.data['ub'] 
-    s.plot_ee_pos([p_mea, 
-                   p_des,
-                   target_position,
-                   ee_lb,
-                   ee_ub],  
-                ['Measured', 
-                 'Predicted',
-                 'Reference',
-                 'lb',
-                 'ub'], 
-                ['r', 'b', 'g', 'k', 'k'], 
-                linestyle=['solid', 'solid', 'dotted', 'dotted', 'dotted'],
-                ylims=[[-0.8,-0.5,0],[+0.8,+0.5,1.5]])
-elif(EXP_NAME == 'plane_cssqp'):
-    _, ax = s.plot_ee_pos([p_mea, 
-                   p_des,
-                   target_position,
-                   r.data['ee_lb'],
-                   r.data['ee_ub']],  
-                ['Measured', 
-                 'Predicted',
-                 'Reference',
-                 'lb',
-                 'ub'], 
-                ['r', 'b', 'g', 'k', 'k'], 
-                linestyle=['solid', 'solid', 'dotted', 'dotted', 'dotted'])
-    ax[-1].set_ylim(0., 0.4)
-else:
-    s.plot_ee_pos([p_mea, 
-                   p_des,
-                   target_position],  
-                ['Measured', 
-                 'Predicted',
-                 'Reference'], 
-                ['r', 'b', 'g'], 
-                linestyle=['solid', 'dotted', 'solid'])
+s.plot_ee_pos([p_mea, 
+                p_des,
+                target_position],  
+            ['Measured', 
+                'Predicted',
+                'Reference'], 
+            ['r', 'b', 'g'], 
+            linestyle=['solid', 'dotted', 'solid'])
 plt.show()

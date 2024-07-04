@@ -22,7 +22,7 @@ from mpc_utils import transform_model_into_capsules
 # Choose experiment, load config and import controller  #  
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
 SIM           = True
-EXP_NAME      = 'circle_cssqp' # <<<<<<<<<<<<< Choose experiment here (cf. launch_utils)
+EXP_NAME      = 'binpicking_cssqp' # <<<<<<<<<<<<< Choose experiment here (cf. launch_utils)
 config        = launch_utils.load_config_file(EXP_NAME)
 MPCController = launch_utils.import_mpc_controller(EXP_NAME)
     
@@ -54,9 +54,20 @@ if SIM:
 
     # <<<<< Customize your PyBullet environment here if necessary
     ## Adding the obstacle 
-    OBSTACLE_POSE =pin.SE3(np.eye(3), np.array([0.4,0,0.5]))
-    OBSTACLE_RADIUS = 0.1
+    OBSTACLE_POSE =pin.SE3(np.eye(3), np.array([0.4,0,1.0]))
+    OBSTACLE_RADIUS = 0.05
+
+    TARGET1 = pin.SE3(np.eye(3),np.asarray(config['target1']) )
+    TARGET2 = pin.SE3(np.eye(3),np.asarray(config['target2']) )
+
+    print(f'robot_simulator.pin_robot.model.upperPositionLimit : {robot_simulator.pin_robot.model.upperPositionLimit}')
+    print(f'robot_simulator.pin_robot.model.lowerPositionLimit : {robot_simulator.pin_robot.model.lowerPositionLimit}')
+    print(f'robot_simulator.pin_robot.model.velocityLimit : {robot_simulator.pin_robot.model.velocityLimit / 3}')
+    print(f'robot_simulator.pin_robot.model.effortLimit : {robot_simulator.pin_robot.model.effortLimit / 2}')
+
     display_ball(OBSTACLE_POSE, OBSTACLE_RADIUS)
+    display_ball(TARGET1, 5e-2, COLOR=np.concatenate((np.random.rand(3), np.ones(1))))
+    display_ball(TARGET2, 5e-2, COLOR=np.concatenate((np.random.rand(3), np.ones(1))))
 
     # Creating the hppfcl shape
     OBSTACLE = hppfcl.Sphere(OBSTACLE_RADIUS)

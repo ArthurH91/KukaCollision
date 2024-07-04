@@ -13,7 +13,7 @@ logger = CustomLogger(__name__, GLOBAL_LOG_LEVEL, GLOBAL_LOG_FORMAT).logger
 
 
 # @profile
-def solveOCP(q, v, solver, max_sqp_iter, max_qp_iter, target_reach, TASK_PHASE):
+def solveOCP(q, v, solver, max_sqp_iter, max_qp_iter, target_reach):
     t = time.time()
     # Update initial state + warm-start
     x = np.concatenate([q, v])
@@ -24,15 +24,14 @@ def solveOCP(q, v, solver, max_sqp_iter, max_qp_iter, target_reach, TASK_PHASE):
     us_init = list(solver.us[1:]) + [solver.us[-1]] 
     
     # Update OCP 
-    if(TASK_PHASE == 1):
-        # Updates nodes between node_id and terminal node 
-        for k in range( solver.problem.T ):
-            solver.problem.runningModels[k].differential.costs.costs["translation"].active = True
-            solver.problem.runningModels[k].differential.costs.costs["translation"].cost.residual.reference = target_reach[k]
-            solver.problem.runningModels[k].differential.costs.costs["translation"].weight = 50.
-        solver.problem.terminalModel.differential.costs.costs["translation"].active = True
-        solver.problem.terminalModel.differential.costs.costs["translation"].cost.residual.reference = target_reach[k]
-        solver.problem.terminalModel.differential.costs.costs["translation"].weight = 50.
+    # Updates nodes between node_id and terminal node 
+    for k in range( solver.problem.T ):
+        solver.problem.runningModels[k].differential.costs.costs["translation"].active = True
+        solver.problem.runningModels[k].differential.costs.costs["translation"].cost.residual.reference = target_reach
+        solver.problem.runningModels[k].differential.costs.costs["translation"].weight = 50.
+    solver.problem.terminalModel.differential.costs.costs["translation"].active = True
+    solver.problem.terminalModel.differential.costs.costs["translation"].cost.residual.reference = target_reach
+    solver.problem.terminalModel.differential.costs.costs["translation"].weight = 50.
 
     solver.max_qp_iters = max_qp_iter
     solver.solve(xs_init, us_init, maxiter=max_sqp_iter, isFeasible=False)
@@ -43,7 +42,7 @@ def solveOCP(q, v, solver, max_sqp_iter, max_qp_iter, target_reach, TASK_PHASE):
 
 
 
-class KukaCircleCSSQP:
+class KukaBinPickingCSSQP:
 
     def __init__(self, head, pin_robot, config, run_sim):
         """
@@ -130,30 +129,21 @@ class KukaCircleCSSQP:
             self.joint_torques_measured = -self.joint_torques_total 
 
 
-        # Circle trajectory 
-        N_total_pos = int((self.config['T_tot'] - self.config['T_REACH'])/self.dt_ctrl + self.Nh*self.OCP_TO_CTRL_RATIO)
-        N_circle    = int((self.config['T_tot'] - self.config['T_CIRCLE'])/self.dt_ctrl + self.Nh*self.OCP_TO_CTRL_RATIO )
-        self.target_position_traj = np.zeros( (N_total_pos, 3) )
-        # absolute desired position
-        self.pdes = np.asarray(self.config['frameTranslationRef']) 
-    
-        radius = 0.3 ; omega = 2.
-        self.target_position_traj[0:N_circle, :] = [np.array([self.pdes[0],
-                                                              self.pdes[1] + radius * np.sin(i*self.dt_ctrl*omega), 
-                                                              self.pdes[2] + radius * (1-np.cos(i*self.dt_ctrl*omega)) ]) for i in range(N_circle)]
-        self.target_position_traj[N_circle:, :] = self.target_position_traj[N_circle-1,:]
-        # Targets over one horizon (initially = absolute target position)
-        self.target_position = np.zeros((self.Nh+1, 3)) 
-        self.target_position[:,:] = self.pdes.copy() 
-        self.target_position_x = self.target_position[:,0] 
-        self.target_position_y = self.target_position[:,1] 
-        self.target_position_z = self.target_position[:,2]
+        # Poses to follow
+        self.target1 = np.asarray(self.config['target1']) 
+        self.target2 = np.asarray(self.config['target2']) 
 
-        self.TASK_PHASE      = 0
+        # Targets over one horizon (initially = absolute target position)
+        self.target_position = self.target1
+        self.target_position_x = float(self.target_position[0]) 
+        self.target_position_y = float(self.target_position[1]) 
+        self.target_position_z = float(self.target_position[2])
+
+        self.TASK_PHASE      = 1
         self.NH_SIMU   = int(self.Nh*self.dt_ocp/self.dt_ctrl)
-        self.T_CIRCLE  = int(self.config['T_CIRCLE']/self.dt_ctrl)
+        self.T_CYCLE  = int(self.config['T_CYCLE'])
         logger.debug("Size of MPC horizon in ctrl cycles = "+str(self.NH_SIMU))
-        logger.debug("Start of circle phase in ctrl cycles = "+str(self.T_CIRCLE))
+        logger.debug("Start of circle phase in ctrl cycles = "+str(self.T_CYCLE))
         logger.debug("OCP to ctrl time ratio = "+str(self.OCP_TO_CTRL_RATIO))
 
         # Solver logs
@@ -177,8 +167,7 @@ class KukaCircleCSSQP:
                                                                                           self.solver, 
                                                                                           self.max_sqp_iter, 
                                                                                           self.max_qp_iter, 
-                                                                                          self.target_position,
-                                                                                          self.TASK_PHASE)
+                                                                                          self.target_position)
         self.cumulative_cost += self.cost
         self.max_sqp_iter = self.config['maxiter']
         self.max_qp_iter  = self.config['max_qp_iter']
@@ -197,25 +186,21 @@ class KukaCircleCSSQP:
         # # # # # # # # # 
         # # Update OCP  #
         # # # # # # # # # 
-        time_to_circle  = int(thread.ti - self.T_CIRCLE)   
 
 
-        if(time_to_circle == 0): 
-            print("Entering circle phase")
-        # If circle tracking phase enters the MPC horizon, start updating models from the end with tracking models      
-        if(0 <= time_to_circle and time_to_circle <= self.NH_SIMU):
+        time = int(thread.ti/100)
+        if time % self.T_CYCLE < self.T_CYCLE/2:
             self.TASK_PHASE = 1
-
-
-        if(0 <= time_to_circle):
-            # set position refs over current horizon
-            tf  = time_to_circle + (self.Nh+1)*self.OCP_TO_CTRL_RATIO
-            # Target in (x,y)  = circle trajectory 
-            self.target_position = self.target_position_traj[time_to_circle:tf:self.OCP_TO_CTRL_RATIO,:]
-            # Record target signals
-            self.target_position_x = self.target_position[:,0] 
-            self.target_position_y = self.target_position[:,1] 
-            self.target_position_z = self.target_position[:,2]
+            self.target_position_x = float( self.target1[0] )
+            self.target_position_y = float(self.target1[1]) 
+            self.target_position_z = float(self.target1[2])
+            self.target_position = self.target1
+        else:
+            self.TASK_PHASE = 2
+            self.target_position_x = float(self.target2[0]) 
+            self.target_position_y = float(self.target2[1]) 
+            self.target_position_z = float(self.target2[2])
+            self.target_position = self.target2
 
         # # # # # # #  
         # Solve OCP #
@@ -225,8 +210,7 @@ class KukaCircleCSSQP:
                                                                                           self.solver, 
                                                                                           self.max_sqp_iter, 
                                                                                           self.max_qp_iter, 
-                                                                                          self.target_position,
-                                                                                          self.TASK_PHASE)
+                                                                                          self.target_position)
 
         # # # # # # # # 
         # Send policy #
@@ -246,4 +230,3 @@ class KukaCircleCSSQP:
 
 
         pin.framesForwardKinematics(self.robot.model, self.robot.data, q)
-        pin.updateGeometryPlacements(self.robot.model, self.robot.data,self.robot.collision_model,self.robot.collision_data, q)
