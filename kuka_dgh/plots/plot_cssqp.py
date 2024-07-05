@@ -10,21 +10,25 @@ python_path = pathlib.Path('.').absolute().parent/'kuka_dgh'
 os.sys.path.insert(1, str(python_path))
 from demos import launch_utils
 
-
+from utils.reduced_model import get_controlled_joint_ids
 from mim_robots.robot_loader import load_pinocchio_wrapper
 
-pinrobot    = load_pinocchio_wrapper('iiwa_convex')
-model       = pinrobot.model
-data        = model.createData()
-frameId     = model.getFrameId('contact')
-nq = model.nq ; nv = model.nv
+# Load robot model
+LOCKED_JOINTS = ['A7']
+pinrobot = load_pinocchio_wrapper('iiwa_convex', locked_joints=LOCKED_JOINTS)
+model    = pinrobot.model
+data     = model.createData()
+frameId  = model.getFrameId('contact')
+nq = model.nq ; nv = model.nv ; nc = 1
 # Overwrite effort limit as in DGM
 model.effortLimit = np.array([100, 100, 50, 50, 20, 10, 10])
+controlled_joint_ids = get_controlled_joint_ids('iiwa_convex', locked_joints=LOCKED_JOINTS)
+
 
 
 
 # Load config file
-SIM           = True
+SIM           = False
 EXP_NAME      = 'binpicking_cssqp' # <<<<<<<<<<<<< Choose experiment here (cf. launch_utils)
 config        = launch_utils.load_config_file(EXP_NAME)
 
@@ -34,11 +38,11 @@ s = SimpleDataPlotter(dt=1./config['ctrl_freq'])
 
 if(SIM):
     data_path = '/tmp/'
-    data_name = 'binpicking_cssqp_SIM_2024-07-04T17:20:11.428684_cssqp_CODE_SPRINT' 
+    data_name = 'binpicking_cssqp_REAL_2024-07-05T18:04:23.178979' 
     
 else:
     data_path = '/tmp/'
-    data_name = 'square_cssqp_REAL_2024-01-18T15:34:35.945630_cssqp_CODE_SPRINT' 
+    data_name = 'binpicking_cssqp_REAL_2024-07-05T18:14:25.652491' 
     
 r = DataReader(data_path+data_name+'.mds')
 N = r.data['absolute_time'].shape[0]
@@ -61,8 +65,7 @@ for i in range(len(ax)):
     
 # Limits
 if(EXP_NAME == 'binpicking_cssqp'):
-
-    s.plot_joint_pos( [r.data['joint_positions'], 
+    s.plot_joint_pos( [r.data['joint_positions'][:,controlled_joint_ids], 
                        r.data['x_des'][:,:nq]], 
                     ['Measured', 
                      'Predicted',
@@ -70,6 +73,14 @@ if(EXP_NAME == 'binpicking_cssqp'):
                      'ub'], 
                     ['r', 'b', 'k', 'k'],
                     ylims=[model.lowerPositionLimit, model.upperPositionLimit],
+                    linestyle=['solid', 'solid', 'dotted', 'dotted'])
+
+    s.plot_joint_vel( [r.data['joint_velocities'][:,controlled_joint_ids], 
+                       r.data['x_des'][:,nq:]], 
+                    ['Measured', 
+                     'Predicted'], 
+                    ['r', 'b', 'k', 'k'],
+                    ylims=[model.velocityLimit, -model.velocityLimit],
                     linestyle=['solid', 'solid', 'dotted', 'dotted'])
 
 # For SIM robot only
@@ -86,16 +97,17 @@ if(SIM):
                        'g', 
                        'b', 
                        [0.2, 0.2, 0.2, 0.5]],
-                      ylims=[-model.effortLimit, +model.effortLimit] )
+                      ylims=[-model.effortLimit/2, +model.effortLimit/2] )
+    print("u bound = \n", model.effortLimit/2)
 # For REAL robot only !! DEFINITIVE FORMULA !!
 else:
     # Our self.tau was subtracted gravity, so we add it again
     # joint_torques_measured DOES include the gravity torque from KUKA
     # There is a sign mismatch in the axis so we use a minus sign
-    s.plot_joint_tau( [-r.data['joint_cmd_torques'], 
-                       r.data['joint_torques_measured'], 
-                       r.data['tau'] + r.data['tau_gravity'], 
-                       r.data['tau_ff'] + r.data['tau_gravity']], 
+    s.plot_joint_tau( [-r.data['joint_cmd_torques'][:, controlled_joint_ids], 
+                       r.data['joint_torques_measured'][:,controlled_joint_ids], 
+                       r.data['tau'][:,controlled_joint_ids] + r.data['tau_gravity'], 
+                       r.data['tau_ff']], 
                   ['-cmd (FRI)', 
                    'Measured', 
                    'Desired (sent to robot) [+g(q)]', 
@@ -106,12 +118,12 @@ else:
                   linestyle=['dotted', 'solid', 'solid', 'solid', 'solid'])
 
 
-p_mea = get_p_(r.data['joint_positions'], pinrobot.model, pinrobot.model.getFrameId('contact'))
+p_mea = get_p_(r.data['joint_positions'][:, controlled_joint_ids], pinrobot.model, pinrobot.model.getFrameId('contact'))
 p_des = get_p_(r.data['x_des'][:,:nq], pinrobot.model, pinrobot.model.getFrameId('contact'))
-target_position = np.zeros((N,3))
-target_position[0] = r.data['target_position_x'][0]
-target_position[1] = r.data['target_position_y'][0]
-target_position[2] = r.data['target_position_z'][0]
+target_position = r.data['target_position'] #np.zeros((N,3))
+# target_position[0] = r.data['target_position_x'][0]
+# target_position[1] = r.data['target_position_y'][0]
+# target_position[2] = r.data['target_position_z'][0]
 
 s.plot_ee_pos([p_mea, 
                 p_des,
@@ -120,5 +132,6 @@ s.plot_ee_pos([p_mea,
                 'Predicted',
                 'Reference'], 
             ['r', 'b', 'g'], 
-            linestyle=['solid', 'dotted', 'solid'])
+            linestyle=['solid', 'dotted', 'solid'],
+            ylims=[-np.ones(3), +1.5*np.ones(3)])
 plt.show()

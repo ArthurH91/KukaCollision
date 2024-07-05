@@ -2,7 +2,7 @@
 
 
 # MPC & sim parameters
-ctrl_freq: 100         # Control frequency
+ctrl_freq: 50         # Control frequency
 RICCATI: False 
 
 
@@ -11,8 +11,8 @@ dt: 0.1                                             # OCP integration step
 N_h: 10                                              # Horizon length in nodes
 maxiter: 4                                           # Max number of iterations 
 solver_termination_tolerance: 0.0001              # Tolerance on KKT residual 
-q0: [0., 1.0471975511965976, 0., -1.1344640137963142, 0.2,  0.7853981633974483, 0.]               # Initial robot joint configuration
-dq0: [0.,0.,0.,0.,0.,0.,0.]                         # Initial robot joint velocity
+q0: [0., 1.0471975511965976, 0., -1.1344640137963142, 0.2,  0.7853981633974483]               # Initial robot joint configuration
+dq0: [0.,0.,0.,0.,0.,0.]                         # Initial robot joint velocity
 
 T_REACH: 0.
 T_CYCLE: 8.
@@ -23,15 +23,15 @@ with_callbacks: False
 use_filter_line_search: True
 filter_size: 4
 warm_start: True
-max_qp_iter: 25    #125 
+max_qp_iter: 125     #125 
 qp_termination_tol_abs: 0.00001
 qp_termination_tol_rel: 0.00001
 warm_start_y: False 
 reset_rho: False
 
 # Absolute translation refs for the task
-target1: [0.4,0.2,1.]  
-target2: [0.4,-0.2,1.0]  
+target1: [0.6, 0.2,0.5]  
+target2: [0.6,-0.2,0.5]  
 
 # Constraints terms
 # to select from the list : 'stateBox', 'ctrlBox', 'translationBox', 'None'
@@ -44,24 +44,27 @@ target2: [0.4,-0.2,1.0]
 #                   1.48353, 1.48353, 1.74533, 1.309  , 2.26893, 2.35619, 2.35619] #'DEFAULT'
 
 #### FOR THE HALF-PLANE CONSTRAINT
-WHICH_CONSTRAINTS: ['collisionBox', 'stateBox', 'ctrlBox']
+WHICH_CONSTRAINTS: ['collisionBox', 'stateBox']
 eeLowerLimit: [-10., 0., 0.]
 eeUpperLimit: [10., 10., 10.]
 eeConstraintFrameName: 'contact'
 
 ##### STATE CONSTRAINT
-stateLowerLimit: [-2.96706, -2.0944, -2.96706, -2.0944, -2.96706, -2.0944, -3.05433,-0.49451  ,  -0.49451  ,  -0.58177667 ,-0.43633333, -0.75631 ,  -0.78539667, -0.78539667 ]
-stateUpperLimit: [2.96706, 2.0944,  2.96706, 2.0944,  2.96706, 2.0944,  3.05433, 0.49451  ,  0.49451  ,  0.58177667 ,0.43633333, 0.75631 ,   0.78539667, 0.78539667]
+stateLowerLimit: [-2.96706, -2.0944, -2.96706, -2.0944, -2.96706, -2.0944, -0.49451  ,  -0.49451  ,  -0.58177667 ,-0.43633333, -0.75631 ,  -0.78539667 ]
+stateUpperLimit: [2.96706, 2.0944,  2.96706, 2.0944,  2.96706, 2.0944,  0.49451  ,  0.49451  ,  0.58177667 ,0.43633333, 0.75631 ,   0.78539667]
+# stateLowerLimit: [-2.96706, -2.0944, -2.96706, -2.0944, -2.96706, -2.0944, -3.05433,    -1.48353, -1.48353, -1.74533, -1.309, -2.26893, -2.35619, -2.35619]
+# stateUpperLimit: [2.96706, 2.0944,  2.96706, 2.0944,  2.96706, 2.0944,  3.05433,      1.48353, 1.48353, 1.74533,  1.309, 2.26893 ,2.35619, 2.35619]
 
 ##### CONTROL CONSTRAINT
 
-ctrlLimit: [160., 160.,  88. , 88. , 55.,  20. , 20.]
+ctrlLimit: [100., 100.,  88. , 88. , 55.,  20.]
 
 
 ### FOR THE COLLISION CONTRAINTS
-safetyMargin: 0.02
+safetyMargin: 0.05
 collisionPairs:     
 - ["L7_capsule_0", "obstacle"]
+- ["L5_capsule_0", "obstacle"]
 - ["L6_capsule_1", "obstacle"]
 - ["L6_capsule_0", "obstacle"]
 
@@ -75,14 +78,14 @@ WHICH_COSTS: ['translation', 'ctrlRegGrav', 'stateReg']
 
 # Cost function weights and activations
  # 'stateReg' : state regularization  
-stateRegWeights: [20., 20., 20., 10., 10., 10, 10., 2., 2., 2., 2., 2., 2., 2.]
+stateRegWeights: [20., 20., 20., 10., 10., 10, 2., 2., 2., 2., 2., 2.]
 stateRegWeight: 0.01
 stateRegWeightTerminal: 0.01
 stateRegRef: 'DEFAULT'  # 'DEFAULT' = [q0, v0]
 
 
  # 'ctrlReg', 'ctrlRegGrav' : torque regularization 
-ctrlRegGravWeights: [1., 1., 1., 1., 1., 1., 1.]
+ctrlRegGravWeights: [1., 1., 1., 1., 1., 1.]
 ctrlRegGravWeight: 0.0001
 ctrlRegGravWeightTerminal: 0.0001
 
@@ -96,4 +99,4 @@ frameTranslationFrameName: 'EE'
 
 
 # armature
-armature: [0., 0., 0., 0., 0., 0., 0.]
+armature: [0., 0., 0., 0., 0., 0.]

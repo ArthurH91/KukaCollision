@@ -7,6 +7,8 @@ import time
 from croco_mpc_utils.ocp_constraints import OptimalControlProblemClassicalWithConstraints
 import croco_mpc_utils.pinocchio_utils as pin_utils
 
+from utils.reduced_model import get_controlled_joint_ids
+
 from croco_mpc_utils.utils import CustomLogger, GLOBAL_LOG_LEVEL, GLOBAL_LOG_FORMAT
 logger = CustomLogger(__name__, GLOBAL_LOG_LEVEL, GLOBAL_LOG_FORMAT).logger
 
@@ -28,10 +30,10 @@ def solveOCP(q, v, solver, max_sqp_iter, max_qp_iter, target_reach):
     for k in range( solver.problem.T ):
         solver.problem.runningModels[k].differential.costs.costs["translation"].active = True
         solver.problem.runningModels[k].differential.costs.costs["translation"].cost.residual.reference = target_reach
-        solver.problem.runningModels[k].differential.costs.costs["translation"].weight = 50.
+        solver.problem.runningModels[k].differential.costs.costs["translation"].weight = 100.
     solver.problem.terminalModel.differential.costs.costs["translation"].active = True
     solver.problem.terminalModel.differential.costs.costs["translation"].cost.residual.reference = target_reach
-    solver.problem.terminalModel.differential.costs.costs["translation"].weight = 50.
+    solver.problem.terminalModel.differential.costs.costs["translation"].weight = 100.
 
     solver.max_qp_iters = max_qp_iter
     solver.solve(xs_init, us_init, maxiter=max_sqp_iter, isFeasible=False)
@@ -44,7 +46,7 @@ def solveOCP(q, v, solver, max_sqp_iter, max_qp_iter, target_reach):
 
 class KukaBinPickingCSSQP:
 
-    def __init__(self, head, pin_robot, config, run_sim):
+    def __init__(self, head, pin_robot, config, run_sim, locked_joints=[]):
         """
         Input:
             head              : thread head
@@ -70,15 +72,23 @@ class KukaBinPickingCSSQP:
         logger.warning("Controlled model dimensions : ")
         logger.warning(" nq = "+str(self.nq))
         logger.warning(" nv = "+str(self.nv))
-        
+
+        # Controlled ids (reduced model)
+        self.controlled_joint_ids = get_controlled_joint_ids('iiwa_ft_sensor_shell', locked_joints=locked_joints)
+        logger.warning("Controlled joint ids = "+str(self.controlled_joint_ids))
+        self.fixed_ids = [i for i in range(7) if i not in self.controlled_joint_ids]
+        logger.warning("Fixed joint ids = "+str(self.fixed_ids))
+        self.gain_P = 100.
+        self.gain_D = 30.
+
         # Config
         self.config = config
         if(self.RUN_SIM):
-            self.q0 = np.asarray(config['q0'])
-            self.v0 = self.joint_velocities.copy()  
+            self.q0 = np.asarray(config['q0'])[self.controlled_joint_ids]
+            self.v0 = self.joint_velocities[self.controlled_joint_ids]
         else:
-            self.q0 = self.joint_positions.copy()
-            self.v0 = self.joint_velocities.copy()
+            self.q0 = self.joint_positions[self.controlled_joint_ids]
+            self.v0 = self.joint_velocities[self.controlled_joint_ids]
         self.x0 = np.concatenate([self.q0, self.v0])
         
         self.Nh = int(self.config['N_h'])
@@ -108,6 +118,10 @@ class KukaBinPickingCSSQP:
         self.solver.regMax                 = 1e6
         self.solver.reg_max                = 1e6
         
+        # De-activate the constraint initially
+        for i in range(self.Nh):
+            for nc in range(len(self.robot.collision_model.collisionPairs)):
+                self.solver.problem.runningModels[i].differential.constraints.constraints['collisionBox_'+str(nc)].constraint.active = False
 
         # Allocate MPC data
         self.K = self.solver.K[0]
@@ -162,8 +176,8 @@ class KukaBinPickingCSSQP:
         self.u0 = pin_utils.get_u_grav(self.q0, self.robot.model, np.zeros(self.robot.model.nq))
         self.solver.xs = [self.x0 for i in range(self.config['N_h']+1)]
         self.solver.us = [self.u0 for i in range(self.config['N_h'])]
-        self.tau_ff, self.x_des, self.K, self.t_child, self.ddp_iter, self.cost, self.constraint_norm, self.gap_norm, self.qp_iters, self.KKT = solveOCP(self.joint_positions, 
-                                                                                          self.joint_velocities, 
+        self.tau_ff, self.x_des, self.K, self.t_child, self.ddp_iter, self.cost, self.constraint_norm, self.gap_norm, self.qp_iters, self.KKT = solveOCP(self.joint_positions[self.controlled_joint_ids], 
+                                                                                          self.joint_velocities[self.controlled_joint_ids], 
                                                                                           self.solver, 
                                                                                           self.max_sqp_iter, 
                                                                                           self.max_qp_iter, 
@@ -176,8 +190,8 @@ class KukaBinPickingCSSQP:
         # # # # # # # # # 
         # Read sensors  #
         # # # # # # # # # 
-        q = self.joint_positions
-        v = self.joint_velocities
+        q = self.joint_positions[self.controlled_joint_ids]
+        v = self.joint_velocities[self.controlled_joint_ids]
 
         # When getting torque measurement from robot, do not forget to flip the sign
         if(not self.RUN_SIM):
@@ -189,6 +203,11 @@ class KukaBinPickingCSSQP:
 
 
         time = int(thread.ti/100)
+        if( time > self.T_CYCLE):
+            for i in range(self.Nh):
+                for nc in range(len(self.robot.collision_model.collisionPairs)):
+                    self.solver.problem.runningModels[i].differential.constraints.constraints['collisionBox_'+str(nc)].constraint.active = True
+
         if time % self.T_CYCLE < self.T_CYCLE/2:
             self.TASK_PHASE = 1
             self.target_position_x = float( self.target1[0] )
@@ -215,13 +234,21 @@ class KukaBinPickingCSSQP:
         # # # # # # # # 
         # Send policy #
         # # # # # # # #
-        self.tau = self.tau_ff.copy()
 
         # Compute gravity
-        self.tau_gravity = pin.rnea(self.robot.model, self.robot.data, self.joint_positions, np.zeros(self.nv), np.zeros(self.nv))
+        self.tau_gravity = pin.rnea(self.robot.model, self.robot.data, self.joint_positions[self.controlled_joint_ids], np.zeros(self.nv), np.zeros(self.nv))
 
         if(self.RUN_SIM == False):
-            self.tau -= self.tau_gravity
+            self.tau_ff -= self.tau_gravity
+
+        if(not self.RUN_SIM and len(self.fixed_ids) > 0):
+            self.tau_PD   = -self.gain_P * self.joint_positions[self.fixed_ids] - self.gain_D * self.joint_velocities[self.fixed_ids]
+            self.tau_full = np.zeros(7)
+            self.tau_full[self.controlled_joint_ids] = self.tau_ff.copy()
+            self.tau_full[self.fixed_ids] = self.tau_PD.copy()
+            self.tau = self.tau_full.copy()
+        else:
+            self.tau = self.tau_ff.copy()
 
         ###### DANGER SEND ONLY GRAV COMP
         # self.tau = np.zeros_like(self.tau_full)
